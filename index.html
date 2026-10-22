@@ -25,13 +25,17 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 12px;
+      margin-bottom: 16px;
     }
     .status {
       font-size: 0.75rem;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: #757575;
+    }
+    .actions {
+      display: flex;
+      gap: 6px;
     }
     .actions button {
       background: #242424;
@@ -41,70 +45,192 @@
       font-size: 0.8rem;
       border-radius: 6px;
       cursor: pointer;
-      margin-left: 6px;
     }
     .actions button:active { background: #333; }
-    textarea {
+    
+    #listContainer {
       flex: 1;
-      width: 100%;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .item-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .checkbox {
+      width: 22px;
+      height: 22px;
+      min-width: 22px;
+      margin-top: 2px;
+      border: 2px solid #555;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      background: #1a1a1a;
+      transition: all 0.15s ease;
+    }
+    .checkbox.checked {
+      background: #3b82f6;
+      border-color: #3b82f6;
+    }
+    .checkbox.checked::after {
+      content: '✓';
+      color: #fff;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .item-text {
+      flex: 1;
       background: transparent;
       border: none;
       outline: none;
       color: #f5f5f5;
       font-size: 1.05rem;
-      line-height: 1.5;
-      resize: none;
+      line-height: 1.4;
       font-family: inherit;
+      resize: none;
+      overflow: hidden;
+      min-height: 26px;
     }
-    textarea::placeholder { color: #444; }
+    .item-text.checked {
+      text-decoration: line-through;
+      color: #666;
+    }
+    .item-text::placeholder { color: #444; }
   </style>
 </head>
 <body>
   <header>
     <span id="status" class="status">Saved</span>
     <div class="actions">
+      <button id="addBtn">+ Item</button>
       <button id="copyBtn">Copy</button>
       <button id="clearBtn">Clear</button>
     </div>
   </header>
-  <textarea id="pad" placeholder="Dump raw thoughts here..." autofocus></textarea>
+
+  <div id="listContainer"></div>
 
   <script>
-    const pad = document.getElementById('pad');
+    const container = document.getElementById('listContainer');
     const status = document.getElementById('status');
-    const clearBtn = document.getElementById('clearBtn');
+    const addBtn = document.getElementById('addBtn');
     const copyBtn = document.getElementById('copyBtn');
+    const clearBtn = document.getElementById('clearBtn');
 
-    // Load saved content
-    pad.value = localStorage.getItem('braindump_content') || '';
+    let items = JSON.parse(localStorage.getItem('braindump_tasks') || '[]');
 
-    // Auto-save on every keystroke
-    pad.addEventListener('input', () => {
-      localStorage.setItem('braindump_content', pad.value);
+    function saveItems() {
+      localStorage.setItem('braindump_tasks', JSON.stringify(items));
       status.textContent = 'Saving...';
       clearTimeout(window.saveTimer);
-      window.saveTimer = setTimeout(() => {
-        status.textContent = 'Saved';
-      }, 400);
+      window.saveTimer = setTimeout(() => { status.textContent = 'Saved'; }, 300);
+    }
+
+    function autoResize(textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = textarea.scrollHeight + 'px';
+    }
+
+    function renderList() {
+      container.innerHTML = '';
+      if (items.length === 0) {
+        items.push({ text: '', checked: false });
+      }
+
+      items.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = 'item-row';
+
+        const checkbox = document.createElement('div');
+        checkbox.className = 'checkbox' + (item.checked ? ' checked' : '');
+        checkbox.addEventListener('click', () => {
+          item.checked = !item.checked;
+          saveItems();
+          renderList();
+        });
+
+        const textarea = document.createElement('textarea');
+        textarea.rows = 1;
+        textarea.className = 'item-text' + (item.checked ? ' checked' : '');
+        textarea.placeholder = 'Type thought or task...';
+        textarea.value = item.text;
+
+        textarea.addEventListener('input', () => {
+          item.text = textarea.value;
+          autoResize(textarea);
+          saveItems();
+        });
+
+        textarea.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            items.splice(index + 1, 0, { text: '', checked: false });
+            saveItems();
+            renderList();
+            setTimeout(() => {
+              const inputs = container.querySelectorAll('.item-text');
+              if (inputs[index + 1]) inputs[index + 1].focus();
+            }, 10);
+          } else if (e.key === 'Backspace' && textarea.value === '' && items.length > 1) {
+            e.preventDefault();
+            items.splice(index, 1);
+            saveItems();
+            renderList();
+            setTimeout(() => {
+              const inputs = container.querySelectorAll('.item-text');
+              const prev = inputs[Math.max(0, index - 1)];
+              if (prev) {
+                prev.focus();
+                prev.selectionStart = prev.selectionEnd = prev.value.length;
+              }
+            }, 10);
+          }
+        });
+
+        row.appendChild(checkbox);
+        row.appendChild(textarea);
+        container.appendChild(row);
+
+        setTimeout(() => autoResize(textarea), 0);
+      });
+    }
+
+    addBtn.addEventListener('click', () => {
+      items.push({ text: '', checked: false });
+      saveItems();
+      renderList();
+      setTimeout(() => {
+        const inputs = container.querySelectorAll('.item-text');
+        inputs[inputs.length - 1].focus();
+      }, 20);
     });
 
-    // Copy entire scratchpad
     copyBtn.addEventListener('click', async () => {
-      if (!pad.value) return;
-      await navigator.clipboard.writeText(pad.value);
+      const exportText = items
+        .filter(i => i.text.trim())
+        .map(i => `${i.checked ? '[x]' : '[ ]'} ${i.text}`)
+        .join('\n');
+      if (!exportText) return;
+      await navigator.clipboard.writeText(exportText);
       copyBtn.textContent = 'Copied!';
       setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
     });
 
-    // Clear with confirmation
     clearBtn.addEventListener('click', () => {
-      if (!pad.value) return;
-      if (confirm('Clear pad?')) {
-        pad.value = '';
-        localStorage.removeItem('braindump_content');
-        status.textContent = 'Cleared';
+      if (confirm('Clear all tasks?')) {
+        items = [{ text: '', checked: false }];
+        saveItems();
+        renderList();
       }
     });
+
+    renderList();
   </script>
 </body>
 </html>
